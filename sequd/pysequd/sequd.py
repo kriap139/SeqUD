@@ -416,7 +416,7 @@ class SeqUD(object):
         self.search_time_consumed_ = search_end_time - search_start_time
         self._summary()
 
-    def fit(self, x, y=None):
+    def fit(self, x, y=None, fit_params: dict = None):
 
         """
         Run fit with all sets of parameters.
@@ -434,7 +434,7 @@ class SeqUD(object):
         def sklearn_wrapper(parameters):
             self.estimator.set_params(**parameters)
             out = cross_val_score(self.estimator, x, y,
-                           cv=self.cv, scoring=self.scoring)
+                           cv=self.cv, scoring=self.scoring, fit_params=fit_params)
             score = np.mean(out)
             return score
 
