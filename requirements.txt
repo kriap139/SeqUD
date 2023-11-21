@@ -13,4 +13,4 @@ pyDOE
 sobol_seq
 
 pyunidoe @ git+https://github.com/kriap139/pyunidoe.git
-git+https://github.com/ZebinYang/spearmint-lite.git
+# git+https://github.com/ZebinYang/spearmint-lite.git
