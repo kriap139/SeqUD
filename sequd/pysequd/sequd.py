@@ -10,7 +10,7 @@ import pyunidoe as pydoe
 
 EPS = 10**(-8)
 
-def time_to_str(cls, secs: float) -> str:
+def time_to_str(secs: float) -> str:
     secs = int(secs)
     days, r = divmod(seconds, 86400)
     hours, r = divmod(remainder, 3600)
