@@ -101,7 +101,7 @@ class SeqUD(object):
     """
 
     def __init__(self, para_space, n_runs_per_stage=20, max_runs=100, max_search_iter=100, n_jobs=None,
-                 estimator=None, cv=None, scoring=None, refit=True, random_state=0, verbose=False):
+                 estimator=None, cv=None, scoring=None, refit=True, random_state=0, verbose=0):
 
         self.para_space = para_space
         self.n_runs_per_stage = n_runs_per_stage
@@ -166,7 +166,7 @@ class SeqUD(object):
                              self.logs.loc[:, self.para_names].iloc[self.best_index_, j]
                              for j in range(self.logs.loc[:, self.para_names].shape[1])}
         self.best_score_ = self.logs.loc[:, "score"].iloc[self.best_index_]
-        if self.verbose:
+        if self.verbose > 0:
             print("SeqUD completed in %.2f seconds." %
                   self.search_time_consumed_)
             print("The best score is: %.5f." % self.best_score_)
@@ -309,13 +309,13 @@ class SeqUD(object):
         # Return if the maximum run has been reached.
         if ((self.logs.shape[0] + self.n_runs_per_stage - x0.shape[0]) > self.max_runs):
             self.stop_flag = True
-            if self.verbose:
+            if self.verbose > 0:
                 print("Maximum number of runs reached, stop!")
             return
 
         if (x0.shape[0] >= self.n_runs_per_stage):
             self.stop_flag = True
-            if self.verbose:
+            if self.verbose > 0:
                 print("Search space already full, stop!")
             return
 
@@ -357,11 +357,14 @@ class SeqUD(object):
                             for i in range(para_set.shape[0])]
         
         if self.n_jobs > 1:
-            out = Parallel(n_jobs=self.n_jobs)(delayed(obj_func)(parameters) for parameters in candidate_params)
+            out = Parallel(n_jobs=self.n_jobs)(
+                    delayed(obj_func)(self.stage, i, len(candidate_params), parameters) 
+                    for i, parameters in enumerate(candidate_params)
+                )
         else:
             out = []
-            for parameters in candidate_params:
-                out.append(obj_func(parameters))
+            for i, parameters in enumerate(candidate_params):
+                out.append(obj_func(self.stage, i, len(candidate_params), parameters))
             out = np.array(out)
 
         logs_aug = para_set_ud.to_dict()
@@ -370,7 +373,7 @@ class SeqUD(object):
         logs_aug = pd.DataFrame(logs_aug)
         logs_aug["stage"] = self.stage
         self.logs = pd.concat([self.logs, logs_aug]).reset_index(drop=True)
-        if self.verbose:
+        if self.verbose > 0:
             print("Stage %d completed (%d/%d) with best score: %.5f."
                   % (self.stage, self.logs.shape[0], self.max_runs, self.logs["score"].max()))
 
@@ -431,12 +434,27 @@ class SeqUD(object):
 
         """
 
-        def sklearn_wrapper(parameters):
+        def sklearn_wrapper(i, parameters):
             self.estimator.set_params(**parameters)
             out = cross_val_score(self.estimator, x, y,
                            cv=self.cv, scoring=self.scoring, fit_params=fit_params)
             score = np.mean(out)
             return score
+        
+        def sklearn_wrapper_verbose(stage, i, runs, parameters):
+            self.estimator.set_params(**parameters)
+            start = time.perf_counter()
+            out = cross_val_score(self.estimator, x, y,
+                           cv=self.cv, scoring=self.scoring, fit_params=fit_params)
+            end = time.perf_counter()
+            score = np.mean(out)
+
+            h, r = divmod(end, 60)
+            m, s = divmod(r, 60)
+            print(f"Stage {stage}: ({i}/{runs}) score={round(score, 3)}, time={h}:{m}:{s}, params={parameters}")
+            return score
+        
+        wrapper = sklearn_wrapper_verbose if self.verbose == 2 else sklearn_wrapper
 
         self.stage = 1
         self.logs = pd.DataFrame()
@@ -446,7 +464,7 @@ class SeqUD(object):
             self.estimator.set_params(**{list(self.estimator.get_params().keys())[idx]:self.random_state})
 
         search_start_time = time.time()
-        self._run(sklearn_wrapper)
+        self._run(wrapper)
         search_end_time = time.time()
         self.search_time_consumed_ = search_end_time - search_start_time
         self._summary()
