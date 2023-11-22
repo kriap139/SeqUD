@@ -455,10 +455,10 @@ class SeqUD(object):
             start = time.perf_counter()
             out = cross_val_score(self.estimator, x, y,
                            cv=self.cv, scoring=self.scoring, fit_params=fit_params)
-            end = time.perf_counter()
+            end = time.perf_counter() - start
             score = np.mean(out)
 
-            print(f"Stage {stage}: ({i}/{runs}) score={round(score, 3)}, time={time_to_str(end)}, params={parameters}")
+            print(f"Stage {stage}: ({i}/{runs}) score={round(score, 3)}, time={time}->{time_to_str(end)}, params={parameters}")
             return score
         
         wrapper = sklearn_wrapper_verbose if self.verbose == 2 else sklearn_wrapper
