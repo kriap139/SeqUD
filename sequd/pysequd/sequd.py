@@ -458,7 +458,7 @@ class SeqUD(object):
             end = time.perf_counter() - start
             score = np.mean(out)
 
-            print(f"Stage {stage}: ({i}/{runs}) score={round(score, 3)}, time={end}->{time_to_str(end)}, params={parameters}")
+            print(f"Stage {stage}: ({i}/{runs}) score={round(score, 3)}, time={round(end, 2)}->{time_to_str(end)}, params={parameters}")
             return score
         
         wrapper = sklearn_wrapper_verbose if self.verbose == 2 else sklearn_wrapper
