@@ -10,6 +10,15 @@ import pyunidoe as pydoe
 
 EPS = 10**(-8)
 
+def time_to_str(cls, secs: float) -> str:
+    secs = int(secs)
+    days, r = divmod(seconds, 86400)
+    hours, r = divmod(remainder, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if days == 0:
+        return "{:02}:{:02}:{:02}".format(hours, minutes, secs)
+    else:
+        return "{:02}:{:02}:{:02}:{:02}".format(days, hours, minutes, secs)
 
 class SeqUD(object):
 
@@ -449,9 +458,7 @@ class SeqUD(object):
             end = time.perf_counter()
             score = np.mean(out)
 
-            h, r = divmod(end, 60)
-            m, s = divmod(r, 60)
-            print(f"Stage {stage}: ({i}/{runs}) score={round(score, 3)}, time={h}:{m}:{s}, params={parameters}")
+            print(f"Stage {stage}: ({i}/{runs}) score={round(score, 3)}, time={time_to_str(end)}, params={parameters}")
             return score
         
         wrapper = sklearn_wrapper_verbose if self.verbose == 2 else sklearn_wrapper
