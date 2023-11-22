@@ -12,9 +12,9 @@ EPS = 10**(-8)
 
 def time_to_str(secs: float) -> str:
     secs = int(secs)
-    days, r = divmod(seconds, 86400)
-    hours, r = divmod(remainder, 3600)
-    minutes, secs = divmod(remainder, 60)
+    days, r = divmod(secs, 86400)
+    hours, r = divmod(r, 3600)
+    minutes, secs = divmod(r, 60)
     if days == 0:
         return "{:02}:{:02}:{:02}".format(hours, minutes, secs)
     else:
