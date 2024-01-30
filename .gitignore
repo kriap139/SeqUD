@@ -5,3 +5,4 @@ examples/*checkpoints/*
 examples/temp/*
 spearmint/*
 scripts/*
+venv/
