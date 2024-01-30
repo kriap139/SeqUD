@@ -5,6 +5,8 @@ from joblib import Parallel
 from joblib import delayed
 from matplotlib import pylab as plt
 from sklearn.model_selection import cross_val_score
+from typing import Iterable
+import math
 
 import pyunidoe as pydoe
 
@@ -110,7 +112,7 @@ class SeqUD(object):
     """
 
     def __init__(self, para_space, n_runs_per_stage=20, max_runs=100, max_search_iter=100, n_jobs=None,
-                 estimator=None, cv=None, scoring=None, refit=True, random_state=0, verbose=0):
+                 estimator=None, cv=None, scoring=None, refit=True, random_state=0, verbose=0, include_cv_folds=True):
 
         self.para_space = para_space
         self.n_runs_per_stage = n_runs_per_stage
@@ -119,6 +121,7 @@ class SeqUD(object):
         self.n_jobs = n_jobs if isinstance(n_jobs, int) else 1
         self.random_state = random_state
         self.verbose = verbose
+        self.include_cv_folds = include_cv_folds
 
         self.cv = cv
         self.refit = refit
@@ -140,6 +143,21 @@ class SeqUD(object):
                 self.variable_number.append(1)
                 self.para_ud_names.append(items + "_UD")
         self.extend_factor_number = sum(self.variable_number)
+    
+    def get_n_cv_folds(self) -> int:
+        if self.cv is None:
+            return 5
+        elif hasattr(self.cv, "get_n_splits") and callable(self.cv.get_n_splits):
+            return self.cv.get_n_splits()
+        elif isinstance(self.cv, Iterable):
+            return len(self.cv)
+        elif isinstance(self.cv, int):
+            return self.cv
+        else:
+            raise ValueError(f"cv attr is not a supported type {self.cv}")
+    
+    def get_n_trials(self) -> int:
+        return self.logs.shape[0] * self.get_n_cv_folds()
 
     def plot_scores(self):
         """
@@ -328,6 +346,11 @@ class SeqUD(object):
                 print("Search space already full, stop!")
             return
 
+        if self.include_cv_folds and (self.get_n_trials() >= self.max_runs):
+            self.stop_flag = True
+            if self.verbose > 0:
+                print("Maximum number of trials reached")
+
         # 4. Generate Sequential UD
         base_ud = pydoe.gen_aud_ms(x0, n=self.n_runs_per_stage, s=self.extend_factor_number, q=self.n_runs_per_stage, crit="CD2",
                                    maxiter=self.max_search_iter, random_state=self.random_state, n_jobs=10, nshoot=10)
@@ -365,15 +388,25 @@ class SeqUD(object):
                              for j in range(para_set.shape[1])}
                             for i in range(para_set.shape[0])]
         
+        n_folds = self.get_n_cv_folds()
+        n_trials = self.get_n_trials()
+        post_n_trials = n_trials + len(candidate_params) * n_folds
+
+        if self.include_cv_folds and (post_n_trials > self.max_runs):
+            delta = self.max_runs - n_trials
+            batch = math.ceil(delta / n_folds)
+            print(f"Evaluating all candidate parameters ({len(candidate_params)}) exedes the maximum number of trials ({self.max_runs}). Selecting the first {batch} candidates!")
+            candidate_params = candidate_params[:batch + 1]
+
         if self.n_jobs > 1:
             out = Parallel(n_jobs=self.n_jobs)(
-                    delayed(obj_func)(self.stage, i, len(candidate_params), parameters) 
+                    delayed(obj_func)(self.stage, i, len(candidate_params), n_folds, parameters) 
                     for i, parameters in enumerate(candidate_params)
                 )
         else:
             out = []
             for i, parameters in enumerate(candidate_params):
-                out.append(obj_func(self.stage, i, len(candidate_params), parameters))
+                out.append(obj_func(self.stage, i, len(candidate_params), n_folds, parameters))
             out = np.array(out)
 
         logs_aug = para_set_ud.to_dict()
@@ -443,25 +476,20 @@ class SeqUD(object):
 
         """
 
-        def sklearn_wrapper(i, parameters):
-            self.estimator.set_params(**parameters)
-            out = cross_val_score(self.estimator, x, y,
-                           cv=self.cv, scoring=self.scoring, fit_params=fit_params)
-            score = np.mean(out)
-            return score
-        
-        def sklearn_wrapper_verbose(stage, i, runs, parameters):
+        def sklearn_wrapper(stage, i, runs, n_folds, parameters):
             self.estimator.set_params(**parameters)
             start = time.perf_counter()
             out = cross_val_score(self.estimator, x, y,
                            cv=self.cv, scoring=self.scoring, fit_params=fit_params)
-            end = time.perf_counter() - start
             score = np.mean(out)
+            end = time.perf_counter() - start
 
-            print(f"Stage {stage}: ({i}/{runs}) score={round(score, 6)}, time={round(end, 2)}->{time_to_str(end)}, params={parameters}")
+            if self.verbose == 2:
+                print(
+                    f"Stage {stage}: runs=({i}/{runs}), trials={(i + 1) * n_folds} score={round(score, 6)}, " 
+                    f"time={round(end, 2)}->{time_to_str(end)}, params={parameters}"
+                )
             return score
-        
-        wrapper = sklearn_wrapper_verbose if self.verbose == 2 else sklearn_wrapper
 
         self.stage = 1
         self.logs = pd.DataFrame()
@@ -471,7 +499,7 @@ class SeqUD(object):
             self.estimator.set_params(**{list(self.estimator.get_params().keys())[idx]:self.random_state})
 
         search_start_time = time.time()
-        self._run(wrapper)
+        self._run(sklearn_wrapper)
         search_end_time = time.time()
         self.search_time_consumed_ = search_end_time - search_start_time
         self._summary()
@@ -486,3 +514,25 @@ class SeqUD(object):
                 self.best_estimator_.fit(x)
             refit_end_time = time.time()
             self.refit_time_ = refit_end_time - refit_start_time
+
+if __name__ == "__main__":
+    from sklearn import svm
+    from sklearn import datasets
+    from sklearn.model_selection import KFold 
+    from sklearn.preprocessing import MinMaxScaler
+    from sklearn.metrics import make_scorer, accuracy_score
+
+    sx = MinMaxScaler()
+    dt = datasets.load_breast_cancer()
+    x = sx.fit_transform(dt.data)
+    y = dt.target
+
+    ParaSpace = {'C':     {'Type': 'continuous', 'Range': [-6, 16], 'Wrapper': np.exp2}, 
+                'gamma': {'Type': 'continuous', 'Range': [-16, 6], 'Wrapper': np.exp2}}
+
+    estimator = svm.SVC()
+    score_metric = make_scorer(accuracy_score)
+    cv = KFold(n_splits=5, random_state=0, shuffle=True)
+
+    clf = SeqUD(ParaSpace, n_runs_per_stage=20, n_jobs=1, estimator=estimator, cv=cv, scoring=score_metric, refit=True, verbose=2, include_cv_folds=False)
+    clf.fit(x, y)
