@@ -7,10 +7,15 @@ from matplotlib import pylab as plt
 from sklearn.model_selection import cross_val_score
 from typing import Iterable
 import math
-
+from dataclasses import dataclass
 import pyunidoe as pydoe
 
 EPS = 10**(-8)
+
+@dataclass
+class MappingData:
+    para_set: pd.DataFrame
+    logs_append: pd.DataFrame
 
 def time_to_str(secs: float) -> str:
     secs = int(secs)
@@ -239,7 +244,7 @@ class SeqUD(object):
                 col_index = np.argmax(
                     para_set_ud.loc[:, column_bool].values, axis=1).tolist()
                 para_set[item] = np.array(values['Mapping'])[col_index]
-        return para_set
+        return MappingData(para_set, logs_append=None)
 
     def _generate_init_design(self):
         """
@@ -382,7 +387,9 @@ class SeqUD(object):
         para_set_ud: A pandas dataframe where each row represents a UD trial point,
                 and columns are used to represent variables.
         """
-        para_set = self._para_mapping(para_set_ud)
+        mapping_data = self._para_mapping(para_set_ud)
+        para_set = mapping_data.para_set
+
         para_set_ud.columns = self.para_ud_names
         candidate_params = [{para_set.columns[j]: para_set.iloc[i, j]
                              for j in range(para_set.shape[1])}
@@ -410,6 +417,10 @@ class SeqUD(object):
             out = np.array(out)
 
         logs_aug = para_set_ud.to_dict()
+        
+        if mapping_data.logs_append is not None:
+            logs_aug.update(mapping_data.logs_append)
+
         logs_aug.update(para_set)
         logs_aug.update(pd.DataFrame(out, columns=["score"]))
         logs_aug = pd.DataFrame(logs_aug)
@@ -514,25 +525,3 @@ class SeqUD(object):
                 self.best_estimator_.fit(x)
             refit_end_time = time.time()
             self.refit_time_ = refit_end_time - refit_start_time
-
-if __name__ == "__main__":
-    from sklearn import svm
-    from sklearn import datasets
-    from sklearn.model_selection import KFold 
-    from sklearn.preprocessing import MinMaxScaler
-    from sklearn.metrics import make_scorer, accuracy_score
-
-    sx = MinMaxScaler()
-    dt = datasets.load_breast_cancer()
-    x = sx.fit_transform(dt.data)
-    y = dt.target
-
-    ParaSpace = {'C':     {'Type': 'continuous', 'Range': [-6, 16], 'Wrapper': np.exp2}, 
-                'gamma': {'Type': 'continuous', 'Range': [-16, 6], 'Wrapper': np.exp2}}
-
-    estimator = svm.SVC()
-    score_metric = make_scorer(accuracy_score)
-    cv = KFold(n_splits=5, random_state=0, shuffle=True)
-
-    clf = SeqUD(ParaSpace, n_runs_per_stage=20, n_jobs=1, estimator=estimator, cv=cv, scoring=score_metric, refit=True, verbose=2, include_cv_folds=False)
-    clf.fit(x, y)
