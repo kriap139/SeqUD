@@ -4,9 +4,9 @@ from .pybatdoe import LHSSearch
 from .pybatdoe import SobolSearch
 from .pybatdoe import UDSearch
 
-from .pybayopt import GPEIOPT
-from .pybayopt import SMACOPT
-from .pybayopt import TPEOPT
+#from .pybayopt import GPEIOPT
+#from .pybayopt import SMACOPT
+#from .pybayopt import TPEOPT
 
 from .pysequd import SeqRand
 from .pysequd import SNTO

@@ -1,5 +1,4 @@
-from .sequd import SeqUD
-from .sequd2 import SeqUD2
+from .sequd2 import SeqUD2, SeqUD
 from .snto import SNTO
 from .seqrand import SeqRand
 

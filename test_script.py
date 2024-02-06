@@ -7,9 +7,9 @@ from sklearn.model_selection import KFold
 from sklearn.metrics import make_scorer, accuracy_score
 
 from sequd import SeqUD
-from sequd import GPEIOPT
-from sequd import SMACOPT
-from sequd import TPEOPT
+#from sequd import GPEIOPT
+#from sequd import SMACOPT
+#from sequd import TPEOPT
 
 sx = MinMaxScaler()
 dt = datasets.load_breast_cancer()
@@ -43,20 +43,20 @@ class TestSeqUD(unittest.TestCase):
                     scoring=score_metric, n_jobs=1, refit=True, verbose=False)
         clf.fit(x, y)
 
-    def test_GPEI(self):
-        """ Test GPEI. """
-        clf = GPEIOPT(ParaSpace, max_runs=10, time_out=10, estimator=estimator, cv=cv, refit=True, verbose=False)
-        clf.fit(x, y)
+    # def test_GPEI(self):
+    #     """ Test GPEI. """
+    #     clf = GPEIOPT(ParaSpace, max_runs=10, time_out=10, estimator=estimator, cv=cv, refit=True, verbose=False)
+    #     clf.fit(x, y)
 
-    def test_SMAC(self):
-        """ Test SMAC. """
-        clf = SMACOPT(ParaSpace, max_runs=10, estimator=estimator, cv=cv, refit=True, verbose=False)
-        clf.fit(x, y)
+    # def test_SMAC(self):
+    #     """ Test SMAC. """
+    #     clf = SMACOPT(ParaSpace, max_runs=10, estimator=estimator, cv=cv, refit=True, verbose=False)
+    #     clf.fit(x, y)
 
-    def test_TPE(self):
-        """ Test TPE. """
-        clf = TPEOPT(ParaSpace, max_runs=10, estimator=estimator, cv=cv, refit=True, verbose=False)
-        clf.fit(x, y)
+    # def test_TPE(self):
+    #     """ Test TPE. """
+    #     clf = TPEOPT(ParaSpace, max_runs=10, estimator=estimator, cv=cv, refit=True, verbose=False)
+    #     clf.fit(x, y)
 
 
 if __name__ == '__main__':
