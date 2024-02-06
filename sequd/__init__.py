@@ -10,7 +10,8 @@ from .pybatdoe import UDSearch
 
 from .pysequd import SeqRand
 from .pysequd import SNTO
-from .pysequd import SeqUD, SeqUD2
+from .pysequd import SeqUD
+from .pysequd import SeqUD2
 
 __all__ = ["GridSearch", "RandSearch", "LHSSearch", "SobolSearch", "UDSearch",
            "GPEIOPT", "SMACOPT", "TPEOPT", "SeqRand", "SNTO", "SeqUD", "SeqUD2"]

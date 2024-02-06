@@ -8,10 +8,14 @@ from sklearn.model_selection import cross_val_score
 from typing import Iterable
 import math
 import pyunidoe as pydoe
-from sequd import SeqUD, MappingData
 from itertools import chain
 
-
+# Cirular imports fix
+if __name__ == "__main__":
+    from sequd import SeqUD, MappingData
+else:
+    from .sequd import SeqUD, MappingData
+    __all__ = ["SeqUD2"]
 
 class SeqUD2(SeqUD):
     def __init__(self, para_space, n_runs_per_stage=20, max_runs=100, max_search_iter=100, n_jobs=None,
@@ -29,12 +33,13 @@ class SeqUD2(SeqUD):
         return super()._generate_init_design()
     
     def _get_prev_stage_rows(self) -> pd.DataFrame:
-        logs = self.logs
-        stage = clf.logs["stage"].max() # prev stage
-        stage_rows = clf.logs[clf.logs["stage"] == stage] # last stage trials
+        # self.logs to clf in stage and stage_rows for the increased score bug.
+        stage = self.logs["stage"].max() # prev stage
+        stage_rows = self.logs[self.logs["stage"] == stage] # last stage trials
         return stage_rows
 
     def _para_mapping(self, para_set_ud, log_append=True):
+        # Initial Stage
         if not len(self.logs):
             return super()._para_mapping(para_set_ud)
 
@@ -47,31 +52,42 @@ class SeqUD2(SeqUD):
             pass
         
         center = max_rows.iloc[0]
-        center_ud = center[self.para_ud_names]
+        if self.stage == 2:
+            # Previous stage was the initial stage, so no adjustments to the search space have been made.
+            center_ud = center[self.para_ud_names]
+        else:
+            center_ud = center[self.adjusted_ud_names]
+            center_ud.rename({col: col.rstrip("_adjusted") for col in center_ud.index}, inplace=True)
+
         set_vecs = center_ud - para_set_ud
         transformed: pd.DataFrame = para_set_ud + self.t * set_vecs
 
         mapping_data = super()._para_mapping(transformed)
-
         if log_append:
             transformed.columns = [f"{name}_adjusted" for name in transformed.columns]
             log_aug = transformed.to_dict()
             log_aug[self.max_score_column_name] = max_score
             log_aug = pd.DataFrame(log_aug)
             mapping_data.logs_append = log_aug
-
         return mapping_data
     
     def _run(self, obj_func):
         super()._run(obj_func)
+        # Sorting columns
         columns = list(chain.from_iterable([self.para_ud_names, self.adjusted_ud_names, [self.max_score_column_name], self.para_names]))
         columns.extend(col for col in self.logs.columns if col not in columns)
+
+        # The search didn't go past the initial stage, so no adjusted UD columns have been added!
+        if self.stage - 1 == 1:
+            added_cols = list(chain.from_iterable([self.adjusted_ud_names, [self.max_score_column_name]]))
+            self.logs[added_cols] = np.nan
+        
         self.logs = self.logs[columns]
 
 if __name__ == "__main__":
     from sklearn import svm
     from sklearn import datasets
-    from sklearn.model_selection import KFold 
+    from sklearn.model_selection import KFold
     from sklearn.preprocessing import MinMaxScaler
     from sklearn.metrics import make_scorer, accuracy_score
 
@@ -87,12 +103,15 @@ if __name__ == "__main__":
     score_metric = make_scorer(accuracy_score)
     cv = KFold(n_splits=5, random_state=0, shuffle=True)
 
-    clf = SeqUD(ParaSpace, n_runs_per_stage=20, n_jobs=1, estimator=estimator, cv=cv, scoring=score_metric, refit=True, verbose=2, include_cv_folds=False)
-    clf.fit(x, y)
+    #clf = SeqUD(ParaSpace, n_runs_per_stage=20, n_jobs=1, estimator=estimator, cv=cv, 
+    #    scoring=score_metric, refit=True, verbose=2, include_cv_folds=False
+    #)
+    #clf.fit(x, y)
 
-    clf2 = SeqUD2(ParaSpace, n_runs_per_stage=20, n_jobs=1, estimator=estimator, cv=cv, scoring=score_metric, refit=True, verbose=2, include_cv_folds=False)
+    clf2 = SeqUD2(ParaSpace, n_runs_per_stage=20, n_jobs=1, estimator=estimator, cv=cv, 
+        scoring=score_metric, refit=True, verbose=2, include_cv_folds=False, t=0.25
+    )
     clf2.fit(x, y)
-    print(clf2.logs.tail())
 
-    print(f"SeqUD: {clf.best_score_}, SeqUD2: {clf2.best_score_}")
+    print(f"SeqUD: 0.9807017543859649, SeqUD2: {clf2.best_score_}")
 

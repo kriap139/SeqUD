@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='sequd',
-      version='0.4',
+      version='0.5',
       description='Hyperparameter Optimization based on Sequential Meta Machine Learning.',
       author='Zebin Yang and Aijun Zhang',
       author_email='yangzb2010@connect.hku.hk, ajzhang@umich.edu',
