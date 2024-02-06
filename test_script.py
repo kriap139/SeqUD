@@ -7,6 +7,7 @@ from sklearn.model_selection import KFold
 from sklearn.metrics import make_scorer, accuracy_score
 
 from sequd import SeqUD
+from sequd import SeqUD2
 #from sequd import GPEIOPT
 #from sequd import SMACOPT
 #from sequd import TPEOPT
@@ -40,7 +41,12 @@ class TestSeqUD(unittest.TestCase):
         """ Test SeqUD. """
 
         clf = SeqUD(ParaSpace, n_runs_per_stage=20, max_runs=10, estimator=estimator, cv=cv,
-                    scoring=score_metric, n_jobs=1, refit=True, verbose=False)
+                    scoring=score_metric, n_jobs=1, refit=True, verbose=False, include_cv_folds=False)
+        clf.fit(x, y)
+    
+    def test_SeqUD2(self):
+        clf = SeqUD2(ParaSpace, n_runs_per_stage=20, max_runs=10, estimator=estimator, cv=cv,
+                    scoring=score_metric, n_jobs=1, refit=True, verbose=0, include_cv_folds=False)
         clf.fit(x, y)
 
     # def test_GPEI(self):
