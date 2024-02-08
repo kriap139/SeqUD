@@ -20,7 +20,7 @@ else:
 class SeqUD2(SeqUD):
     def __init__(self, para_space, n_runs_per_stage=20, max_runs=100, max_search_iter=100, n_jobs=None,
                  estimator=None, cv=None, scoring=None, refit=True, random_state=0, verbose=0, include_cv_folds=True, 
-                 adjust_method='linear', t=0.1, exp_step = 0.1):
+                 adjust_method='linear', t=0.25, exp_step = 0.18):
         super().__init__(para_space, n_runs_per_stage, max_runs, max_search_iter, n_jobs, estimator, cv, scoring, refit, random_state, verbose, include_cv_folds)
         self.adjusted_ud_names = [f"{name}_UD_adjusted" for name in self.para_names]
         self.max_score_column_name = "max_prev_score"
