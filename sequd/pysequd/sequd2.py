@@ -20,14 +20,34 @@ else:
 class SeqUD2(SeqUD):
     def __init__(self, para_space, n_runs_per_stage=20, max_runs=100, max_search_iter=100, n_jobs=None,
                  estimator=None, cv=None, scoring=None, refit=True, random_state=0, verbose=0, include_cv_folds=True, 
-                 approx_method='linear', t=0.1):
+                 adjust_method='linear', t=0.1, exp_step = 0.1):
         super().__init__(para_space, n_runs_per_stage, max_runs, max_search_iter, n_jobs, estimator, cv, scoring, refit, random_state, verbose, include_cv_folds)
         self.adjusted_ud_names = [f"{name}_UD_adjusted" for name in self.para_names]
         self.max_score_column_name = "max_prev_score"
 
         self.t = t
-        self.approx_method = approx_method
+        self.k = 12
+        self.x_0 = 0.5
+        self.exp_step = exp_step
+        self.adjust_method = adjust_method
+
+        if adjust_method == "linear":
+            self.adjust = self.adjust_linear
+        elif adjust_method == "exp":
+            self.adjust = self.adjust_exp
+        else:
+            raise ValueError(f"Invalid adjust method ({adjust_method}). Supported values are ('linear', 'exp')")
     
+    def adjust_linear(self, set_vecs: pd.DataFrame) -> pd.DataFrame:
+        return self.t * set_vecs
+    
+    def sigmoid(self, x: float) -> float: 
+        return 1 / (1 + np.exp(-self.k * (x - self.x_0)))
+
+    def adjust_exp(self, set_vecs):
+        frac = self.sigmoid(self.exp_step * (self.stage - 1)) 
+        return frac * set_vecs
+
     def _generate_init_design(self):
         self._adjusted_ud_logs = pd.DataFrame()
         return super()._generate_init_design()
@@ -60,7 +80,7 @@ class SeqUD2(SeqUD):
             center_ud.rename({col: col.rstrip("_adjusted") for col in center_ud.index}, inplace=True)
 
         set_vecs = center_ud - para_set_ud
-        transformed: pd.DataFrame = para_set_ud + self.t * set_vecs
+        transformed: pd.DataFrame = para_set_ud + self.adjust(set_vecs)
 
         mapping_data = super()._para_mapping(transformed)
         if log_append:
@@ -109,9 +129,12 @@ if __name__ == "__main__":
     #clf.fit(x, y)
 
     clf2 = SeqUD2(ParaSpace, n_runs_per_stage=20, n_jobs=1, estimator=estimator, cv=cv, 
-        scoring=score_metric, refit=True, verbose=2, include_cv_folds=False, t=0.25
+        scoring=score_metric, refit=True, verbose=2, include_cv_folds=False, t=0.25,
+        adjust_method='linear', exp_step=0.18
     )
     clf2.fit(x, y)
 
+    # exp_step = 0.9824561403508772
+    # t = 0.9824561403508772
     print(f"SeqUD: 0.9807017543859649, SeqUD2: {clf2.best_score_}")
 
