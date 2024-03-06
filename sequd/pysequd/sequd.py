@@ -117,7 +117,7 @@ class SeqUD(object):
     """
 
     def __init__(self, para_space, n_runs_per_stage=20, max_runs=100, max_search_iter=100, n_jobs=None,
-                 estimator=None, cv=None, scoring=None, refit=True, random_state=0, verbose=0, include_cv_folds=True):
+                 estimator=None, cv=None, scoring=None, refit=True, random_state=0, verbose=0):
 
         self.para_space = para_space
         self.n_runs_per_stage = n_runs_per_stage
@@ -126,7 +126,6 @@ class SeqUD(object):
         self.n_jobs = n_jobs if isinstance(n_jobs, int) else 1
         self.random_state = random_state
         self.verbose = verbose
-        self.include_cv_folds = include_cv_folds
 
         self.cv = cv
         self.refit = refit
@@ -351,11 +350,6 @@ class SeqUD(object):
                 print("Search space already full, stop!")
             return
 
-        if self.include_cv_folds and (self.get_n_trials() >= self.max_runs):
-            self.stop_flag = True
-            if self.verbose > 0:
-                print("Maximum number of trials reached")
-
         # 4. Generate Sequential UD
         base_ud = pydoe.gen_aud_ms(x0, n=self.n_runs_per_stage, s=self.extend_factor_number, q=self.n_runs_per_stage, crit="CD2",
                                    maxiter=self.max_search_iter, random_state=self.random_state, n_jobs=10, nshoot=10)
@@ -391,19 +385,13 @@ class SeqUD(object):
         para_set = mapping_data.para_set
 
         para_set_ud.columns = self.para_ud_names
+        candidate_params = self._candidate_params()
         candidate_params = [{para_set.columns[j]: para_set.iloc[i, j]
                              for j in range(para_set.shape[1])}
                             for i in range(para_set.shape[0])]
         
         n_folds = self.get_n_cv_folds()
         n_trials = self.get_n_trials()
-        post_n_trials = n_trials + len(candidate_params) * n_folds
-
-        if self.include_cv_folds and (post_n_trials > self.max_runs):
-            delta = self.max_runs - n_trials
-            batch = math.ceil(delta / n_folds)
-            print(f"Evaluating all candidate parameters ({len(candidate_params)}) exedes the maximum number of trials ({self.max_runs}). Selecting the first {batch} candidates!")
-            candidate_params = candidate_params[:batch + 1]
 
         if self.n_jobs > 1:
             out = Parallel(n_jobs=self.n_jobs)(
