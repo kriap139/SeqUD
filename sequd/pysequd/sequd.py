@@ -4,11 +4,20 @@ import pandas as pd
 from joblib import Parallel
 from joblib import delayed
 from matplotlib import pylab as plt
-from sklearn.model_selection import cross_val_score
-from typing import Iterable
+from sklearn.model_selection import cross_val_score, check_cv
+from sklearn.model_selection._validation import Bunch, _fit_and_score, _warn_or_raise_about_fit_failures, _insert_error_scores, _aggregate_score_dicts, _normalize_score_results
+from sklearn.metrics import check_scoring
+from sklearn.metrics._scorer import _MultimetricScorer, _check_multimetric_scoring
+from sklearn.utils import indexable, Bunch
+from sklearn.utils.metadata_routing import process_routing, _routing_enabled
+from sklearn.utils.validation import _check_method_params
+from sklearn.base import clone, is_classifier
+from typing import Iterable, List
 import math
 from dataclasses import dataclass
 import pyunidoe as pydoe
+from collections import defaultdict
+from itertools import product
 
 EPS = 10**(-8)
 
@@ -117,7 +126,7 @@ class SeqUD(object):
     """
 
     def __init__(self, para_space, n_runs_per_stage=20, max_runs=100, max_search_iter=100, n_jobs=None,
-                 estimator=None, cv=None, scoring=None, refit=True, random_state=0, verbose=0):
+                 estimator=None, cv=None, scoring=None, refit=True, random_state=0, verbose=0, error_score='raise'):
 
         self.para_space = para_space
         self.n_runs_per_stage = n_runs_per_stage
@@ -126,11 +135,13 @@ class SeqUD(object):
         self.n_jobs = n_jobs if isinstance(n_jobs, int) else 1
         self.random_state = random_state
         self.verbose = verbose
+        self.error_score = error_score
 
         self.cv = cv
         self.refit = refit
         self.scoring = scoring
         self.estimator = estimator
+        self.refit_metric = 'score'
 
         self.stage = 0
         self.stop_flag = False
@@ -148,17 +159,64 @@ class SeqUD(object):
                 self.para_ud_names.append(items + "_UD")
         self.extend_factor_number = sum(self.variable_number)
     
-    def get_n_cv_folds(self) -> int:
-        if self.cv is None:
-            return 5
-        elif hasattr(self.cv, "get_n_splits") and callable(self.cv.get_n_splits):
-            return self.cv.get_n_splits()
-        elif isinstance(self.cv, Iterable):
-            return len(self.cv)
-        elif isinstance(self.cv, int):
-            return self.cv
+    # from sklearn: https://github.com/scikit-learn/scikit-learn/blob/5c4aa5d0d90ba66247d675d4c3fc2fdfba3c39ff/sklearn/model_selection/_search.py#L823
+    def _get_scorers(self, convert_multimetric):
+        """Get the scorer(s) to be used.
+
+        This is used in ``fit`` and ``get_metadata_routing``.
+
+        Parameters
+        ----------
+        convert_multimetric : bool
+            Whether to convert a dict of scorers to a _MultimetricScorer. This
+            is used in ``get_metadata_routing`` to include the routing info for
+            multiple scorers.
+
+        Returns
+        -------
+        scorers
+        """
+
+        if callable(self.scoring):
+            scorers = self.scoring
+            self.refit_metric = "score"
+        elif self.scoring is None or isinstance(self.scoring, str):
+            scorers = check_scoring(self.estimator, self.scoring)
+            self.refit_metric = "score"
         else:
-            raise ValueError(f"cv attr is not a supported type {self.cv}")
+            scorers = _check_multimetric_scoring(self.estimator, self.scoring)
+            self._check_refit_for_multimetric(scorers)
+            self.refit_metric = self.refit
+            if convert_multimetric and isinstance(scorers, dict):
+                scorers = _MultimetricScorer(
+                    scorers=scorers, raise_exc=(self.error_score == "raise")
+                )
+
+        return scorers
+    
+    # from sklearn: https://github.com/scikit-learn/scikit-learn/blob/5c4aa5d0d90ba66247d675d4c3fc2fdfba3c39ff/sklearn/model_selection/_search.py#L823
+    def _check_refit_for_multimetric(self, scores):
+        """Check `refit` is compatible with `scores` is valid"""
+        multimetric_refit_msg = (
+            "For multi-metric scoring, the parameter refit must be set to a "
+            "scorer key or a callable to refit an estimator with the best "
+            "parameter setting on the whole data and make the best_* "
+            "attributes available for that metric. If this is not needed, "
+            f"refit should be set to False explicitly. {self.refit!r} was "
+            "passed."
+        )
+
+        valid_refit_dict = isinstance(self.refit, str) and self.refit in scores
+
+        if (
+            self.refit is not False
+            and not valid_refit_dict
+            and not callable(self.refit)
+        ):
+            raise ValueError(multimetric_refit_msg)
+    
+    def get_n_cv_folds(self) -> int:
+        return check_cv(self.cv).get_n_splits()
     
     def get_n_trials(self) -> int:
         return self.logs.shape[0] * self.get_n_cv_folds()
@@ -179,24 +237,27 @@ class SeqUD(object):
             plt.show()
         else:
             print("No available logs!")
+    
+    def _select_best(self):
+        """Select index of the best combination of hyperparemeters."""
 
-    def _summary(self):
-        """
-        This function summarizes the evaluation results and makes records.
-
-        Parameters
-        ----------
-        para_set_ud: A pandas dataframe where each row represents a UD trial point,
-                and columns are used to represent variables.
-        para_set: A pandas dataframe which contains the trial points in original form.
-        score: A numpy vector, which contains the evaluated scores of trial points in para_set.
-
-        """
-        self.best_index_ = self.logs.loc[:, "score"].idxmax()
+        if callable(self.refit):
+            # If callable, refit is expected to return the index of the best
+            # parameter set.
+            best_index = self.refit(self.logs)
+            if not isinstance(best_index, numbers.Integral):
+                raise TypeError("best_index_ returned is not an integer")
+            if best_index < 0 or best_index >= len(results["params"]):
+                raise IndexError("best_index_ index out of range")
+        else:
+            best_index = self.logs.loc[:, self.refit_metric].idxmax()
+        
+        self.best_index_ = best_index
         self.best_params_ = {self.logs.loc[:, self.para_names].columns[j]:
                              self.logs.loc[:, self.para_names].iloc[self.best_index_, j]
                              for j in range(self.logs.loc[:, self.para_names].shape[1])}
-        self.best_score_ = self.logs.loc[:, "score"].iloc[self.best_index_]
+        self.best_score_ = self.logs.loc[:, self.refit_metric].iloc[self.best_index_]
+
         if self.verbose > 0:
             print("SeqUD completed in %.2f seconds." %
                   self.search_time_consumed_)
@@ -244,6 +305,12 @@ class SeqUD(object):
                     para_set_ud.loc[:, column_bool].values, axis=1).tolist()
                 para_set[item] = np.array(values['Mapping'])[col_index]
         return MappingData(para_set, logs_append=None)
+
+    def _candidate_params(self, para_set: pd.DataFrame) -> List[dict]:
+        return [{para_set.columns[j]: para_set.iloc[i, j]
+            for j in range(para_set.shape[1])}
+                for i in range(para_set.shape[0])
+        ]
 
     def _generate_init_design(self):
         """
@@ -368,8 +435,8 @@ class SeqUD(object):
                 para_set_ud[:, k] = ud_space[base_ud_aug[:, k] - 1, k]
         para_set_ud = pd.DataFrame(para_set_ud, columns=self.para_ud_names)
         return para_set_ud
-
-    def _evaluate_runs(self, obj_func, para_set_ud):
+    
+    def _evaluate_runs(self, obj_wrapper, para_set_ud):
         """
         This function evaluates the performance scores of given trials.
 
@@ -383,34 +450,44 @@ class SeqUD(object):
         """
         mapping_data = self._para_mapping(para_set_ud)
         para_set = mapping_data.para_set
+        candidate_params = self._candidate_params(para_set)
+        parallel = Parallel(n_jobs=self.n_jobs)
 
-        para_set_ud.columns = self.para_ud_names
-        candidate_params = self._candidate_params()
-        candidate_params = [{para_set.columns[j]: para_set.iloc[i, j]
-                             for j in range(para_set.shape[1])}
-                            for i in range(para_set.shape[0])]
-        
-        n_folds = self.get_n_cv_folds()
-        n_trials = self.get_n_trials()
+        # case where objwrapper returns an array of dicts instead of scores is not implemented!
+        out = obj_wrapper(parallel, candidate_params)
 
-        if self.n_jobs > 1:
-            out = Parallel(n_jobs=self.n_jobs)(
-                    delayed(obj_func)(self.stage, i, len(candidate_params), n_folds, parameters) 
-                    for i, parameters in enumerate(candidate_params)
-                )
-        else:
-            out = []
-            for i, parameters in enumerate(candidate_params):
-                out.append(obj_func(self.stage, i, len(candidate_params), n_folds, parameters))
-            out = np.array(out)
-
+        para_set_ud.columns = self.para_ud_names    
         logs_aug = para_set_ud.to_dict()
-        
         if mapping_data.logs_append is not None:
             logs_aug.update(mapping_data.logs_append)
+        logs_aug.update(para_set)    
 
-        logs_aug.update(para_set)
-        logs_aug.update(pd.DataFrame(out, columns=["score"]))
+        # fmax is used when only scores are returned
+        if isinstance(out[0], float):
+            logs_aug.update(pd.DataFrame(out, columns=["score"]))
+        else:
+            first_test_score = out[0]["test_scores"]
+            is_multimetric = isinstance(first_test_score, dict) 
+            n_candidates = len(candidate_params)
+            n_folds = self.get_n_cv_folds()
+
+            # check self.refit_metric now for a callabe scorer that is multimetric
+            if callable(self.scoring) and is_multimetric:
+                self._check_refit_for_multimetric(first_test_score)
+                self.refit_metric = self.refit
+            
+            out = _aggregate_score_dicts(out)
+
+            all_fit_times = np.array(out['fit_time'], dtype=np.float64).reshape(n_candidates, n_folds)
+            fold_fit_times = all_fit_times.mean(axis=1)
+
+            #FIXME multimetric score not accounted for!!!!
+            all_test_scores = np.array(out['test_scores'], dtype=np.float64).reshape(n_candidates, n_folds)
+            fold_test_scores = all_test_scores.mean(axis=1)
+
+            logs_aug.update(pd.DataFrame(fold_fit_times, columns=["time"]))
+            logs_aug.update(pd.DataFrame(fold_test_scores, columns=["score"]))
+
         logs_aug = pd.DataFrame(logs_aug)
         logs_aug["stage"] = self.stage
         self.logs = pd.concat([self.logs, logs_aug]).reset_index(drop=True)
@@ -455,12 +532,21 @@ class SeqUD(object):
         self.stage = 1
         np.random.seed(self.random_state)
         search_start_time = time.time()
-        self._run(wrapper_func)
+
+        def wrapper(parallel: Parallel, candidate_params: List[dict]) -> np.ndarray:
+            with parallel:
+                out = parallel(
+                    delayed(obj_func)(parameters) 
+                    for parameters in enumerate(candidate_params)
+                )
+                return out
+
+        self._run(wrapper)
         search_end_time = time.time()
         self.search_time_consumed_ = search_end_time - search_start_time
-        self._summary()
+        self._select_best()
 
-    def fit(self, x, y=None, fit_params: dict = None):
+    def fit(self, x, y=None, **fit_params) -> 'SeqUD':
 
         """
         Run fit with all sets of parameters.
@@ -475,36 +561,100 @@ class SeqUD(object):
 
         """
 
-        def sklearn_wrapper(stage, i, runs, n_folds, parameters):
-            self.estimator.set_params(**parameters)
-            start = time.perf_counter()
-            out = cross_val_score(self.estimator, x, y,
-                           cv=self.cv, scoring=self.scoring, fit_params=fit_params)
-            score = np.mean(out)
-            end = time.perf_counter() - start
+        x, y = indexable(x, y)
+        params = _check_method_params(x, params=fit_params)
+
+        def sklearn_wrapper(X, Y, parameters, i, runs, n_folds, **kwargs):
+            result = _fit_and_score(
+                clone(self.estimator), 
+                X, 
+                Y, 
+                parameters=parameters,
+                return_train_score=False,
+                return_parameters=False,
+                return_n_test_samples=True,
+                return_times=True,
+                error_score=self.error_score,
+                verbose=self.verbose,
+                score_params={},
+                **kwargs
+            )
 
             if self.verbose == 2:
                 print(
-                    f"Stage {stage}: runs=({i}/{runs}), trials={(i + 1) * n_folds} score={round(score, 6)}, " 
-                    f"time={round(end, 2)}->{time_to_str(end)}, params={parameters}"
+                    f"Stage {self.stage}: runs=({i}/{runs}), trials={(i + 1) * n_folds} score={result['test_scores']}, " 
+                    f"time={round(result['fit_time'], 2)}->{time_to_str(result['fit_time'])}, params={parameters}"
                 )
-            return score
+            return result
 
+        def wrapper(parallel: Parallel, candidate_params: List[dict]) -> np.ndarray:
+            scorers = self._get_scorers(convert_multimetric=False)
+            cv = check_cv(self.cv, y, classifier=is_classifier(self.estimator))
+            n_splits = cv.get_n_splits(x, y)
+            n_candidates = len(candidate_params)
+
+            fit_and_score_kwargs = dict(
+                scorer=scorers,
+                fit_params=params
+            )
+
+            with parallel:
+                out = parallel(
+                    delayed(sklearn_wrapper)(
+                        X=x,
+                        Y=y,
+                        train=train,
+                        test=test,
+                        parameters=parameters,
+                        i=cand_idx,
+                        runs=len(candidate_params),
+                        n_folds=n_splits,
+                        split_progress=(split_idx, n_splits),
+                        candidate_progress=(cand_idx, n_candidates),
+                        **fit_and_score_kwargs,
+                    )
+                    for (cand_idx, parameters), (split_idx, (train, test)) in product(
+                        enumerate(candidate_params),
+                        enumerate(cv.split(x, y)),
+                    )
+                )
+            
+            if len(out) < 1:
+                raise ValueError(
+                    "No fits were performed. "
+                    "Was the CV iterator empty? "
+                    "Were there no candidates?"
+                )
+            elif len(out) != n_candidates * n_splits:
+                raise ValueError(
+                    "cv.split and cv.get_n_splits returned "
+                    "inconsistent results. Expected {} "
+                    "splits, got {}".format(n_splits, len(out) // n_candidates)
+                )
+            
+            _warn_or_raise_about_fit_failures(out, error_score=self.error_score)
+
+            if callable(self.scoring):
+                _insert_error_scores(out, error_score=self.error_score)
+            return out
+            
         self.stage = 1
         self.logs = pd.DataFrame()
         np.random.seed(self.random_state)
+
+        #FIXME might need to change this
         index = np.where(["random_state" in param for param in list(self.estimator.get_params().keys())])[0]
         for idx in index:
             self.estimator.set_params(**{list(self.estimator.get_params().keys())[idx]:self.random_state})
 
         search_start_time = time.time()
-        self._run(sklearn_wrapper)
+        self._run(wrapper)
         search_end_time = time.time()
         self.search_time_consumed_ = search_end_time - search_start_time
-        self._summary()
 
+        self._select_best()
         if self.refit:
-            self.best_estimator_ = self.estimator.set_params(
+            self.best_estimator_ = clone(self.estimator).set_params(
                 **self.best_params_)
             refit_start_time = time.time()
             if y is not None:
@@ -513,3 +663,5 @@ class SeqUD(object):
                 self.best_estimator_.fit(x)
             refit_end_time = time.time()
             self.refit_time_ = refit_end_time - refit_start_time
+
+        return self

@@ -40,8 +40,12 @@ class TestSeqUD(unittest.TestCase):
         """ Test SeqUD. """
 
         clf = SeqUD(ParaSpace, n_runs_per_stage=20, max_runs=10, estimator=estimator, cv=cv,
-                    scoring=score_metric, n_jobs=1, refit=True, verbose=False, include_cv_folds=False)
+                    scoring=score_metric, n_jobs=1, refit=True, verbose=False)
         clf.fit(x, y)
+        # originall prallel setup commit: 4d2eb6075c6a95cdc8a65e32a1d06823ab41385c
+
+        # Results_new_parallel_setup: best_score=0.9789473684210528, best_params={'C': 46.85074227025992, 'gamma': 0.45062523130541443}
+        print(f"best_score={clf.best_score_}, best_params={clf.best_params_}")
 
     # def test_GPEI(self):
     #     """ Test GPEI. """
