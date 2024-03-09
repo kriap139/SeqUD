@@ -159,6 +159,9 @@ class SeqUD(object):
                 self.para_ud_names.append(items + "_UD")
         self.extend_factor_number = sum(self.variable_number)
     
+    def _get_refit_metric_label(self) -> str:
+        return f"{self.refit_metric}_score" if self.refit_metric != "score" else self.refit_metric
+    
     # from sklearn: https://github.com/scikit-learn/scikit-learn/blob/5c4aa5d0d90ba66247d675d4c3fc2fdfba3c39ff/sklearn/model_selection/_search.py#L823
     def _get_scorers(self, convert_multimetric):
         """Get the scorer(s) to be used.
@@ -227,7 +230,7 @@ class SeqUD(object):
         """
 
         if self.logs.shape[0] > 0:
-            cum_best_score = self.logs["score"].cummax()
+            cum_best_score = self.logs[self._get_refit_metric_label()].cummax()
             plt.figure(figsize=(6, 4))
             plt.plot(cum_best_score)
             plt.xlabel('# of Runs')
@@ -241,6 +244,8 @@ class SeqUD(object):
     def _select_best(self):
         """Select index of the best combination of hyperparemeters."""
 
+        refit_metric = self._get_refit_metric_label()
+
         if callable(self.refit):
             # If callable, refit is expected to return the index of the best
             # parameter set.
@@ -250,13 +255,13 @@ class SeqUD(object):
             if best_index < 0 or best_index >= len(results["params"]):
                 raise IndexError("best_index_ index out of range")
         else:
-            best_index = self.logs.loc[:, self.refit_metric].idxmax()
+            best_index = self.logs.loc[:, refit_metric].idxmax()
         
         self.best_index_ = best_index
         self.best_params_ = {self.logs.loc[:, self.para_names].columns[j]:
                              self.logs.loc[:, self.para_names].iloc[self.best_index_, j]
                              for j in range(self.logs.loc[:, self.para_names].shape[1])}
-        self.best_score_ = self.logs.loc[:, self.refit_metric].iloc[self.best_index_]
+        self.best_score_ = self.logs.loc[:, refit_metric].iloc[self.best_index_]
 
         if self.verbose > 0:
             print("SeqUD completed in %.2f seconds." %
@@ -451,9 +456,8 @@ class SeqUD(object):
         mapping_data = self._para_mapping(para_set_ud)
         para_set = mapping_data.para_set
         candidate_params = self._candidate_params(para_set)
-        parallel = Parallel(n_jobs=self.n_jobs)
 
-        # case where objwrapper returns an array of dicts instead of scores is not implemented!
+        parallel = Parallel(n_jobs=self.n_jobs)
         out = obj_wrapper(parallel, candidate_params)
 
         para_set_ud.columns = self.para_ud_names    
@@ -471,29 +475,33 @@ class SeqUD(object):
             n_candidates = len(candidate_params)
             n_folds = self.get_n_cv_folds()
 
-            # check self.refit_metric now for a callabe scorer that is multimetric
-            if callable(self.scoring) and is_multimetric:
-                self._check_refit_for_multimetric(first_test_score)
-                self.refit_metric = self.refit
-            
             out = _aggregate_score_dicts(out)
 
             all_fit_times = np.array(out['fit_time'], dtype=np.float64).reshape(n_candidates, n_folds)
             fold_fit_times = all_fit_times.mean(axis=1)
+            logs_aug.update(pd.DataFrame(fold_fit_times, columns=["fit_time"]))
 
-            #FIXME multimetric score not accounted for!!!!
-            all_test_scores = np.array(out['test_scores'], dtype=np.float64).reshape(n_candidates, n_folds)
-            fold_test_scores = all_test_scores.mean(axis=1)
-
-            logs_aug.update(pd.DataFrame(fold_fit_times, columns=["time"]))
-            logs_aug.update(pd.DataFrame(fold_test_scores, columns=["score"]))
+            # check self.refit_metric now for a callabe scorer that is multimetric
+            if is_multimetric:
+                self._check_refit_for_multimetric(first_test_score)
+                self.refit_metric = self.refit
+                out["test_scores"] = _aggregate_score_dicts(out["test_scores"])
+                scorers = out["test_scores"]
+                for scorer, values in scorers.items():
+                    all_test_scores = np.array(values, dtype=np.float64).reshape(n_candidates, n_folds)
+                    fold_test_scores = all_test_scores.mean(axis=1)
+                    logs_aug.update(pd.DataFrame(fold_test_scores, columns=[f"{scorer}_score"]))
+            else:
+                all_test_scores = np.array(out['test_scores'], dtype=np.float64).reshape(n_candidates, n_folds)
+                fold_test_scores = all_test_scores.mean(axis=1)
+                logs_aug.update(pd.DataFrame(fold_test_scores, columns=["score"]))
 
         logs_aug = pd.DataFrame(logs_aug)
         logs_aug["stage"] = self.stage
         self.logs = pd.concat([self.logs, logs_aug]).reset_index(drop=True)
         if self.verbose > 0:
             print("Stage %d completed (%d/%d) with best score: %.5f."
-                  % (self.stage, self.logs.shape[0], self.max_runs, self.logs["score"].max()))
+                  % (self.stage, self.logs.shape[0], self.max_runs, self.logs[self._get_refit_metric_label()].max()))
 
     def _run(self, obj_func):
         """
@@ -510,7 +518,7 @@ class SeqUD(object):
         self.stage += 1
         while (True):
             ud_center = self.logs.sort_values(
-                "score", ascending=False).loc[:, self.para_ud_names].values[0, :]
+                self._get_refit_metric_label(), ascending=False).loc[:, self.para_ud_names].values[0, :]
             para_set_ud = self._generate_augment_design(ud_center)
             if not self.stop_flag:
                 self._evaluate_runs(obj_func, para_set_ud)

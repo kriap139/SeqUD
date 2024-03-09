@@ -3,13 +3,16 @@ import numpy as np
 from sklearn import svm
 from sklearn import datasets
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, GridSearchCV
 from sklearn.metrics import make_scorer, accuracy_score
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.datasets import make_hastie_10_2
 
 from sequd import SeqUD
 #from sequd import GPEIOPT
 #from sequd import SMACOPT
 #from sequd import TPEOPT
+
 
 sx = MinMaxScaler()
 dt = datasets.load_breast_cancer()
@@ -46,6 +49,19 @@ class TestSeqUD(unittest.TestCase):
 
         # Results_new_parallel_setup: best_score=0.9789473684210528, best_params={'C': 46.85074227025992, 'gamma': 0.45062523130541443}
         print(f"best_score={clf.best_score_}, best_params={clf.best_params_}")
+    
+    def test_multieval_sequd(self):
+        X, Y = make_hastie_10_2(n_samples=8000, random_state=42)
+        # The scorers can be either one of the predefined metric strings or a scorer
+        # callable, like the one returned by make_scorer
+        scoring = {"AUC": "roc_auc", "Accuracy": make_scorer(accuracy_score)}
+        refit = "AUC"
+
+        clf = SeqUD(ParaSpace, n_runs_per_stage=20, max_runs=10, estimator=estimator, cv=cv, scoring=scoring, n_jobs=1, refit=refit, verbose=False)
+        clf.fit(x, y)
+
+        print(f"best_score={clf.best_score_}, best_params={clf.best_params_}")
+
 
     # def test_GPEI(self):
     #     """ Test GPEI. """
