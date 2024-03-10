@@ -19,6 +19,7 @@ from dataclasses import dataclass
 import pyunidoe as pydoe
 from collections import defaultdict
 from itertools import product
+import inspect
 
 EPS = 10**(-8)
 
@@ -574,6 +575,9 @@ class SeqUD(object):
         params = fit_params
         #params = _check_method_params(x, params=fit_params)
 
+        # workaround for oleder sklearn version on ml server!
+        is_score_params = 'score_params' in str(inspect.signature(_fit_and_score))
+
         def sklearn_wrapper(X, Y, parameters, i, runs, n_folds, **kwargs):
             result = _fit_and_score(
                 clone(self.estimator), 
@@ -586,7 +590,6 @@ class SeqUD(object):
                 return_times=True,
                 error_score=self.error_score,
                 verbose=self.verbose,
-                score_params={},
                 **kwargs
             )
 
@@ -607,6 +610,8 @@ class SeqUD(object):
                 scorer=scorers,
                 fit_params=params
             )
+            if is_score_params:
+                fit_and_score_kwargs["score_params"] = {}
 
             with parallel:
                 out = parallel(
