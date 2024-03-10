@@ -5,12 +5,13 @@ from joblib import Parallel
 from joblib import delayed
 from matplotlib import pylab as plt
 from sklearn.model_selection import cross_val_score, check_cv
-from sklearn.model_selection._validation import _fit_and_score, _warn_or_raise_about_fit_failures, _insert_error_scores, _aggregate_score_dicts, _normalize_score_results
+
+from sklearn.model_selection._validation import _fit_and_score, _warn_or_raise_about_fit_failures, _insert_error_scores, _aggregate_score_dicts
 from sklearn.metrics import check_scoring
 from sklearn.metrics._scorer import _MultimetricScorer, _check_multimetric_scoring
-from sklearn.utils import indexable
 from sklearn.utils.metadata_routing import process_routing, _routing_enabled
-from sklearn.utils.validation import _check_method_params
+#from sklearn.utils.validation import _check_method_params
+from sklearn.utils import indexable
 from sklearn.base import clone, is_classifier
 from typing import Iterable, List
 import math
@@ -570,7 +571,8 @@ class SeqUD(object):
         """
 
         x, y = indexable(x, y)
-        params = _check_method_params(x, params=fit_params)
+        params = fit_params
+        #params = _check_method_params(x, params=fit_params)
 
         def sklearn_wrapper(X, Y, parameters, i, runs, n_folds, **kwargs):
             result = _fit_and_score(
