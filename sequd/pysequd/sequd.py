@@ -578,7 +578,7 @@ class SeqUD(object):
         # workaround for oleder sklearn version on ml server!
         is_score_params = 'score_params' in str(inspect.signature(_fit_and_score))
 
-        def sklearn_wrapper(X, Y, parameters, i, runs, n_folds, **kwargs):
+        def sklearn_wrapper(X, Y, parameters, i, runs, split_progress, **kwargs):
             result = _fit_and_score(
                 clone(self.estimator), 
                 X, 
@@ -589,13 +589,15 @@ class SeqUD(object):
                 return_n_test_samples=True,
                 return_times=True,
                 error_score=self.error_score,
-                verbose=self.verbose,
+                verbose=0,
+                split_progress=split_progress,
                 **kwargs
             )
 
             if self.verbose == 2:
+                (split_idx, n_splits) = split_progress
                 print(
-                    f"Stage {self.stage}: runs=({i}/{runs}), trials={(i + 1) * n_folds} score={result['test_scores']}, " 
+                    f"Stage {self.stage}: runs=({i + 1}/{runs}), trials={split_idx + 1}/{n_splits}, score={result['test_scores']}, " 
                     f"time={round(result['fit_time'], 2)}->{time_to_str(result['fit_time'])}, params={parameters}"
                 )
             return result
@@ -623,7 +625,6 @@ class SeqUD(object):
                         parameters=parameters,
                         i=cand_idx,
                         runs=len(candidate_params),
-                        n_folds=n_splits,
                         split_progress=(split_idx, n_splits),
                         candidate_progress=(cand_idx, n_candidates),
                         **fit_and_score_kwargs,
