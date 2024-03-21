@@ -1,4 +1,4 @@
-from .sequd import SeqUD, MappingData
+from .sequd import SeqUD, MappingData, EPS
 from .snto import SNTO
 from .seqrand import SeqRand
 

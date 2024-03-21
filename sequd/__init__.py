@@ -10,7 +10,7 @@ from .pybatdoe import UDSearch
 
 from .pysequd import SeqRand
 from .pysequd import SNTO
-from .pysequd import SeqUD, MappingData
+from .pysequd import SeqUD, MappingData, EPS
 
 __all__ = ["GridSearch", "RandSearch", "LHSSearch", "SobolSearch", "UDSearch",
            "GPEIOPT", "SMACOPT", "TPEOPT", "SeqRand", "SNTO", "SeqUD", "MappingData"]
